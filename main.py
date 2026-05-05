@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
+import threading
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from dotenv import load_dotenv
 
@@ -241,6 +243,49 @@ async def inline_query_handler(inline_query: InlineQuery, settings: Settings) ->
     )
 
 
+def _health_listen_port() -> int:
+    raw = (os.getenv("PORT") or "8080").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 8080
+
+
+class _HealthHTTPHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        path = (self.path or "").split("?", 1)[0]
+        if path in ("/", "/health"):
+            body = b"OK"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format: str, *args) -> None:
+        logger.debug("%s - %s", self.address_string(), format % args)
+
+
+def _serve_health_http_forever(port: int) -> None:
+    server = HTTPServer(("0.0.0.0", port), _HealthHTTPHandler)
+    logger.info("Health HTTP server listening on 0.0.0.0:%s", port)
+    server.serve_forever()
+
+
+def start_health_server_background() -> None:
+    port = _health_listen_port()
+    thread = threading.Thread(
+        target=_serve_health_http_forever,
+        args=(port,),
+        daemon=True,
+        name="health-http",
+    )
+    thread.start()
+
+
 async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -252,6 +297,8 @@ async def main() -> None:
 
     settings = _load_settings()
     await init_db(settings.db_path)
+
+    start_health_server_background()
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=MemoryStorage())
