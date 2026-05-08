@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -64,6 +65,65 @@ class SettingsMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         data["settings"] = self._settings
         return await handler(event, data)
+
+
+# Per chat: after a random 50–100 user messages, reply with a random voice (groups only).
+_random_voice_chat_state: dict[int, dict[str, int]] = {}
+
+
+def _random_voice_next_threshold() -> int:
+    return random.randint(50, 100)
+
+
+class RandomVoiceReplyMiddleware(BaseMiddleware):
+    """After each handled group message, occasionally reply with a cached random voice."""
+
+    def __init__(self, settings: Settings):
+        self._settings = settings
+
+    async def __call__(self, handler, event, data):
+        result = await handler(event, data)
+        msg = event if isinstance(event, Message) else None
+        if msg is None:
+            return result
+        if msg.chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
+            return result
+        if msg.from_user is None or msg.from_user.is_bot:
+            return result
+
+        bot = data.get("bot")
+        if bot is None:
+            return result
+
+        st = _random_voice_chat_state.get(msg.chat.id)
+        if st is None:
+            st = {"count": 0, "threshold": _random_voice_next_threshold()}
+            _random_voice_chat_state[msg.chat.id] = st
+        st["count"] += 1
+        if st["count"] < st["threshold"]:
+            return result
+        st["count"] = 0
+        st["threshold"] = _random_voice_next_threshold()
+
+        try:
+            row = await get_random_voice_sample(self._settings.db_path)
+        except Exception:
+            logger.exception("Random voice reply: failed to fetch sample")
+            return result
+        if row is None:
+            return result
+        file_id = str(row.get("file_id") or "").strip()
+        if not file_id:
+            return result
+        try:
+            await bot.send_voice(
+                chat_id=msg.chat.id,
+                voice=file_id,
+                reply_to_message_id=msg.message_id,
+            )
+        except Exception:
+            logger.exception("Random voice reply: send_voice failed for chat %s", msg.chat.id)
+        return result
 
 
 def _is_owner_private(message: Message, owner_id: int) -> bool:
@@ -304,6 +364,7 @@ async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
 
     dp.update.outer_middleware(SettingsMiddleware(settings))
+    router.message.outer_middleware(RandomVoiceReplyMiddleware(settings))
     dp.include_router(router)
 
     logger.info("Bot started. Inline mode must be enabled in BotFather.")
