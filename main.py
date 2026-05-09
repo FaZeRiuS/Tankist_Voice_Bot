@@ -72,7 +72,7 @@ _random_voice_chat_state: dict[int, dict[str, int]] = {}
 
 
 def _random_voice_next_threshold() -> int:
-    return random.randint(50, 100)
+    return random.randint(10, 40)
 
 
 class RandomVoiceReplyMiddleware(BaseMiddleware):
