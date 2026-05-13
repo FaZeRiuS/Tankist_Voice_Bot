@@ -12,7 +12,27 @@ CREATE TABLE IF NOT EXISTS voice_samples (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS user_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id INTEGER PRIMARY KEY,
+    profile_data TEXT NOT NULL,
+    last_updated TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tracked_users (
+    user_id INTEGER PRIMARY KEY,
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_voice_samples_title ON voice_samples(title);
+CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id);
 """.strip()
 
 
@@ -113,3 +133,80 @@ async def search_voice_samples(
 
     ranked = sorted(candidates, key=score, reverse=True)
     return ranked[offset : offset + limit]
+
+
+async def log_user_message(db_path: str, user_id: int, chat_id: int, text: str) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO user_messages (user_id, chat_id, text) VALUES (?, ?, ?)",
+            (user_id, chat_id, text),
+        )
+        await db.commit()
+
+
+async def get_user_history(db_path: str, user_id: int, limit: int = 20) -> list[str]:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT text FROM user_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        )
+        rows = await cur.fetchall()
+        # Return in chronological order
+        return [r[0] for r in reversed(rows)]
+
+
+async def get_message_count(db_path: str, user_id: int) -> int:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM user_messages WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        return row[0] if row else 0
+
+
+async def update_user_profile(db_path: str, user_id: int, profile_data: str) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO user_profiles (user_id, profile_data, last_updated) VALUES (?, ?, datetime('now'))",
+            (user_id, profile_data),
+        )
+        await db.commit()
+
+
+async def get_user_profile(db_path: str, user_id: int) -> str | None:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT profile_data FROM user_profiles WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+
+async def is_user_tracked(db_path: str, user_id: int) -> bool:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT 1 FROM tracked_users WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        return row is not None
+
+
+async def add_tracked_user(db_path: str, user_id: int) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO tracked_users (user_id) VALUES (?)",
+            (user_id,),
+        )
+        await db.commit()
+
+
+async def remove_tracked_user(db_path: str, user_id: int) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "DELETE FROM tracked_users WHERE user_id = ?",
+            (user_id,),
+        )
+        await db.commit()
