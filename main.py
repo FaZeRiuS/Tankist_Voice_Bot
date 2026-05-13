@@ -94,7 +94,7 @@ _random_voice_chat_state: dict[int, dict[str, int]] = {}
 
 
 def _random_voice_next_threshold() -> int:
-    return random.randint(10, 40)
+    return random.randint(25, 60)
 
 
 async def _analyze_user_if_needed(user_id: int, settings: Settings) -> None:
