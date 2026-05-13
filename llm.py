@@ -10,6 +10,14 @@ def setup_gemini(api_key: str):
     genai.configure(api_key=api_key)
     return True
 
+async def _get_model(name: str = "gemini-flash-latest"):
+    """Internal helper to get a model or fallback to gemini-pro-latest."""
+    try:
+        return genai.GenerativeModel(name)
+    except Exception:
+        logger.warning(f"Model {name} not found, falling back to gemini-pro-latest")
+        return genai.GenerativeModel("gemini-pro-latest")
+
 async def summarize_user_history(history: list[str]) -> str | None:
     """Analyze user history and return a 1-sentence personality summary."""
     if not history:
@@ -25,10 +33,16 @@ async def summarize_user_history(history: list[str]) -> str | None:
     )
     
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = await _get_model()
         response = await model.generate_content_async(prompt)
         return response.text.strip()
     except Exception:
+        # If it fails again, try to list models to help debugging
+        try:
+            available = [m.name for m in genai.list_models()]
+            logger.error(f"Failed to generate content. Available models: {available}")
+        except:
+            pass
         logger.exception("Failed to summarize user history via Gemini")
         return None
 
@@ -43,7 +57,7 @@ async def generate_personalized_reply(profile: str, current_message: str) -> str
     )
     
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = await _get_model()
         response = await model.generate_content_async(prompt)
         return response.text.strip()
     except Exception:

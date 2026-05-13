@@ -255,7 +255,10 @@ async def whois_user(message: Message, settings: Settings) -> None:
 
 @router.message(Command("analyze"))
 async def force_analyze_user(message: Message, settings: Settings) -> None:
-    """Force an LLM analysis for a user via reply."""
+    """Force an LLM analysis for a user via reply (Owner only)."""
+    if message.from_user.id != settings.owner_id:
+        return
+
     if not message.reply_to_message or not message.reply_to_message.from_user:
         target_user = message.from_user
     else:
