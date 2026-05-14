@@ -339,8 +339,11 @@ async def handle_forwarded_message(message: Message, settings: Settings) -> None
         text = message.text or message.caption
         if text:
             await log_user_message(settings.db_path, target_id, message.chat.id, f"[Forwarded] {text}")
-            # We don't notify to keep it silent, or just a small emoji
-            await message.react([{"type": "emoji", "emoji": "📥"}])
+            try:
+                # Use a more standard emoji and wrap in try-except
+                await message.react([{"type": "emoji", "emoji": "👍"}])
+            except Exception:
+                pass
     elif message.forward_sender_name:
         # If user has privacy settings on, we can't get their ID. 
         # We could use a hash of the name, but it's not reliable for profiles.
