@@ -287,7 +287,13 @@ async def force_analyze_user(message: Message, settings: Settings) -> None:
         await update_user_profile(settings.db_path, target_user.id, profile)
         await message.reply(f"✅ Аналіз завершено для {target_user.full_name}:\n\n{profile}")
     else:
-        await message.reply("Не вдалося виконати аналіз. Спробуйте пізніше або перевірте API ключ.")
+        # Check if it was a quota error or something else
+        await message.reply(
+            "❌ Не вдалося виконати аналіз. Можливі причини:\n"
+            "1. Проблеми з API ключем Gemini.\n"
+            "2. Вичерпано ліміти запитів (спробуйте через хвилину).\n"
+            "3. Модель недоступна у вашому регіоні."
+        )
 
 
 @router.message(Command("track"))
@@ -323,6 +329,10 @@ async def untrack_user_cmd(message: Message, settings: Settings) -> None:
 @router.message(F.forward_from | F.forward_sender_name)
 async def handle_forwarded_message(message: Message, settings: Settings) -> None:
     """Ingest forwarded messages to build history for other users manually."""
+    # Skip if it's a voice message in private chat from owner (they might want to ingest it)
+    if message.chat.type == ChatType.PRIVATE and message.from_user.id == settings.owner_id and message.voice:
+        return
+
     # If it's a forward from a real user
     if message.forward_from:
         target_id = message.forward_from.id
